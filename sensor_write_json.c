@@ -16,6 +16,9 @@
 #define GPIO_CHIP "/dev/gpiochip4"
 #define GPIO_WATER_LEVEL 17
 
+// JSON Output Configuration
+#define JSON_OUTPUT_FILE "/home/andy/Sproutly/AutomatedPlanterSite/public/sensor_data.json"
+
 // ADS1115 Registers
 #define ADS1115_REG_CONVERSION   0x00
 #define ADS1115_REG_CONFIG       0x01
@@ -75,6 +78,10 @@ int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int offset);
 int gpio_read(gpio_context *ctx);
 void gpio_cleanup(gpio_context *ctx);
 
+// Function prototypes - JSON
+int write_json_file(const char *filepath, float moisture, float light,
+                    float temp, float humidity, int water_level);
+
 int main(void) {
     int fd_ads, fd_bme;
     int adc0, adc1;
@@ -114,36 +121,33 @@ int main(void) {
         return 1;
     }
 
-    printf("Sensor Reader - Press Ctrl+C to exit\n");
-    printf("Soil Moisture (V) | Light (V) | Temp (°C) | Humidity (%%) | Water Level\n");
-    printf("------------------+-----------+-----------+--------------+------------\n");
+    // Read ADS1115
+    adc0 = ads1115_read_adc(fd_ads, 0);
+    voltage0 = (adc0 >= 0) ? ads1115_convert_to_voltage(adc0) : 0.0f;
 
-    while (1) {
-        // Read ADS1115
-        adc0 = ads1115_read_adc(fd_ads, 0);
-        voltage0 = (adc0 >= 0) ? ads1115_convert_to_voltage(adc0) : 0.0f;
+    adc1 = ads1115_read_adc(fd_ads, 1);
+    voltage1 = (adc1 >= 0) ? ads1115_convert_to_voltage(adc1) : 0.0f;
 
-        adc1 = ads1115_read_adc(fd_ads, 1);
-        voltage1 = (adc1 >= 0) ? ads1115_convert_to_voltage(adc1) : 0.0f;
+    // Read BME280
+    if (bme280_read_data(fd_bme, &calib, &temperature, &humidity) < 0) {
+        temperature = 0.0f;
+        humidity = 0.0f;
+    }
 
-        // Read BME280
-        if (bme280_read_data(fd_bme, &calib, &temperature, &humidity) < 0) {
-            temperature = 0.0f;
-            humidity = 0.0f;
-        }
+    // Read GPIO
+    water_level = gpio_read(&gpio_ctx);
+    if (water_level < 0) {
+        water_level = 0;
+    }
 
-        // Read GPIO
-        water_level = gpio_read(&gpio_ctx);
-        if (water_level < 0) {
-            water_level = 0;
-        }
-
-        // Display all values on one line
-        printf("      %6.3f      |  %6.3f   | %9.2f |    %8.1f  |      %d     \r",
-               voltage0, voltage1, temperature, humidity, water_level);
-        fflush(stdout);
-
-        usleep(200000);
+    // Write to JSON file
+	const char *json_filepath = JSON_OUTPUT_FILE;
+    if (write_json_file(json_filepath, voltage0, voltage1,
+                       temperature, humidity, water_level) < 0) {
+        gpio_cleanup(&gpio_ctx);
+        close(fd_ads);
+        close(fd_bme);
+        return 1;
     }
 
     // Cleanup
@@ -400,4 +404,26 @@ void gpio_cleanup(gpio_context *ctx) {
     if (ctx->chip) {
         gpiod_chip_close(ctx->chip);
     }
+}
+
+// ============================================================================
+// JSON Functions
+// ============================================================================
+
+int write_json_file(const char *filepath, float moisture, float light,
+                    float temp, float humidity, int water_level) {
+    FILE *fp;
+
+    fp = fopen(filepath, "w");
+    if (!fp) {
+        perror("Failed to open JSON file for writing");
+        return -1;
+    }
+
+    // Write JSON data
+    fprintf(fp, "{\"moisture\":%.2f,\"light\":%.2f,\"temp\":%.2f,\"humidity\":%.1f,\"waterLevel\":%d}\n",
+            moisture, light, temp, humidity, water_level);
+
+    fclose(fp);
+    return 0;
 }
