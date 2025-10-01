@@ -1,0 +1,17 @@
+# Automated Planter Requirements
+# Core dependencies
+flask==2.3.3
+requests==2.31.0
+
+# For Raspberry Pi GPIO control (uncomment when using real hardware)
+# RPi.GPIO==0.7.1
+
+# For sensor libraries (uncomment as needed for real hardware)
+# Adafruit_DHT==1.4.0
+# smbus==1.1.post2
+# spidev==3.6
+
+# Development dependencies
+# pytest==7.4.2
+# black==23.7.0
+# flake8==6.0.0
