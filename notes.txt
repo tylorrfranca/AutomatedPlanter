@@ -1,0 +1,11 @@
+ANALOG SENSORS
+	For ADC:
+        -   SDA: GPIO 2 (pin 3)
+        -   SCL: GPIO 3 (pin 5)
+        -   ADDR: Ground
+        -   VDD: 3.3V
+        -   GND: Ground
+        -   A0-A3: Analog sensor outputs
+
+DIGITAL SENSORS
+
