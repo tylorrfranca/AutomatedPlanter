@@ -1,11 +1,23 @@
 ANALOG SENSORS
-	For ADC:
-        -   SDA: GPIO 2 (pin 3)
-        -   SCL: GPIO 3 (pin 5)
+	For ADC (ADS1115):
+        -   SDA: GPIO 2 (pin 3, parallel with BME280)
+        -   SCL: GPIO 3 (pin 5, parallel with BME280))
         -   ADDR: Ground
         -   VDD: 3.3V
         -   GND: Ground
-        -   A0-A3: Analog sensor outputs
+        -   A0: Soil moisture sensor AOUT
+		-	A1: Light sensor AOUT
+
+	For Temp/Humidity (BME280):
+		-	VCC: 3.3V
+		-	GND: Ground
+		-	SDA: GPIO 2 (pin 3, parallel with ADS1115)
+		-	SCL: GPIO 3 (pin 5, parallel with ADS1115)
 
 DIGITAL SENSORS
-
+	For water level sensors:
+		-	Connect OUT pins with GPIO17 (pin 11)
+								  GPIO27 (pin 13)
+								  GPIO22 (pin 15)
+		-	VCC: 3.3V
+		-	GND: Ground
