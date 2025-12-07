@@ -14,7 +14,10 @@
 
 // GPIO Configuration
 #define GPIO_CHIP "/dev/gpiochip4"
-#define GPIO_WATER_LEVEL 17
+#define GPIO_WATER_LEVEL_1 17  // Bit 0 (LSB)
+#define GPIO_WATER_LEVEL_2 27  // Bit 1
+#define GPIO_WATER_LEVEL_3 22  // Bit 2 (MSB)
+#define NUM_WATER_LEVEL_SENSORS 3
 
 // JSON Output Configuration
 #define JSON_OUTPUT_FILE "/home/andy/Sproutly/AutomatedPlanterSite/public/sensor_data.json"
@@ -56,7 +59,8 @@ typedef struct {
 typedef struct {
     struct gpiod_chip *chip;
     struct gpiod_line_request *request;
-    unsigned int offset;
+    unsigned int offsets[NUM_WATER_LEVEL_SENSORS];
+    int num_offsets;
 } gpio_context;
 
 // Function prototypes - I2C
@@ -74,7 +78,7 @@ int bme280_read_calibration(int fd, bme280_calib_data *calib);
 int bme280_read_data(int fd, bme280_calib_data *calib, float *temp, float *humidity);
 
 // Function prototypes - GPIO
-int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int offset);
+int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int *offsets, int num_offsets);
 int gpio_read(gpio_context *ctx);
 void gpio_cleanup(gpio_context *ctx);
 
@@ -113,8 +117,13 @@ int main(void) {
         return 1;
     }
 
-    // Initialize GPIO
-    if (gpio_init(&gpio_ctx, GPIO_CHIP, GPIO_WATER_LEVEL) < 0) {
+    // Initialize GPIO (three water level sensors)
+    unsigned int gpio_offsets[NUM_WATER_LEVEL_SENSORS] = {
+        GPIO_WATER_LEVEL_1,  // Bit 0 (LSB)
+        GPIO_WATER_LEVEL_2,  // Bit 1
+        GPIO_WATER_LEVEL_3   // Bit 2 (MSB)
+    };
+    if (gpio_init(&gpio_ctx, GPIO_CHIP, gpio_offsets, NUM_WATER_LEVEL_SENSORS) < 0) {
         fprintf(stderr, "Failed to initialize GPIO\n");
         close(fd_ads);
         close(fd_bme);
@@ -313,13 +322,23 @@ int bme280_read_data(int fd, bme280_calib_data *calib, float *temp, float *humid
 // GPIO Functions (libgpiod v2.2.1)
 // ============================================================================
 
-int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int offset) {
+int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int *offsets, int num_offsets) {
     struct gpiod_line_settings *settings;
     struct gpiod_line_config *line_cfg;
     struct gpiod_request_config *req_cfg;
     int ret;
+    int i;
 
-    ctx->offset = offset;
+    if (num_offsets > NUM_WATER_LEVEL_SENSORS) {
+        fprintf(stderr, "Too many GPIO offsets\n");
+        return -1;
+    }
+
+    // Store offsets
+    ctx->num_offsets = num_offsets;
+    for (i = 0; i < num_offsets; i++) {
+        ctx->offsets[i] = offsets[i];
+    }
 
     // Open GPIO chip
     ctx->chip = gpiod_chip_open(chip_path);
@@ -346,7 +365,8 @@ int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int offset) {
         return -1;
     }
 
-    ret = gpiod_line_config_add_line_settings(line_cfg, &offset, 1, settings);
+    // Add all line settings
+    ret = gpiod_line_config_add_line_settings(line_cfg, offsets, num_offsets, settings);
     if (ret) {
         fprintf(stderr, "Failed to add line settings\n");
         gpiod_line_config_free(line_cfg);
@@ -366,10 +386,10 @@ int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int offset) {
     }
     gpiod_request_config_set_consumer(req_cfg, "water-level");
 
-    // Request the line
+    // Request the lines
     ctx->request = gpiod_chip_request_lines(ctx->chip, req_cfg, line_cfg);
     if (!ctx->request) {
-        perror("Failed to request GPIO line");
+        perror("Failed to request GPIO lines");
         gpiod_request_config_free(req_cfg);
         gpiod_line_config_free(line_cfg);
         gpiod_line_settings_free(settings);
@@ -387,14 +407,26 @@ int gpio_init(gpio_context *ctx, const char *chip_path, unsigned int offset) {
 
 int gpio_read(gpio_context *ctx) {
     enum gpiod_line_value value;
+    int combined_value = 0;
+    int i;
 
-    value = gpiod_line_request_get_value(ctx->request, ctx->offset);
-    if (value < 0) {
-        perror("Failed to read GPIO value");
-        return -1;
+    // Read all three sensors and combine into a single integer
+    // Bit 0 (LSB) = GPIO_WATER_LEVEL_1 (line 17)
+    // Bit 1 = GPIO_WATER_LEVEL_2 (line 27)
+    // Bit 2 (MSB) = GPIO_WATER_LEVEL_3 (line 22)
+    for (i = 0; i < ctx->num_offsets; i++) {
+        value = gpiod_line_request_get_value(ctx->request, ctx->offsets[i]);
+        if (value < 0) {
+            perror("Failed to read GPIO value");
+            return -1;
+        }
+        // Set the corresponding bit if water is detected (value == 1)
+        if (value == GPIOD_LINE_VALUE_ACTIVE) {
+            combined_value |= (1 << i);
+        }
     }
 
-    return (int)value;
+    return combined_value;
 }
 
 void gpio_cleanup(gpio_context *ctx) {
@@ -427,3 +459,4 @@ int write_json_file(const char *filepath, float moisture, float light,
     fclose(fp);
     return 0;
 }
+
